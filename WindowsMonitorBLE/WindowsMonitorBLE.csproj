@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyTitle>Windows Monitor BLE</AssemblyTitle>
+    <AssemblyDescription>Thu thập thông số hệ thống Windows và gửi qua BLE đến ESP32-C3</AssemblyDescription>
+    <RootNamespace>WindowsMonitorBLE</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- LibreHardwareMonitor để đọc nhiệt độ CPU/GPU (chỉ update mỗi 3s) -->
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.3" />
+    <!-- Không cần System.Management — đã thay WMI bằng P/Invoke GlobalMemoryStatusEx -->
+  </ItemGroup>
+
+</Project>

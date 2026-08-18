@@ -1,0 +1,25 @@
+## Visual Studio / .NET
+[Bb]in/
+[Oo]bj/
+[Dd]ist/
+[Dd]ist_setup/
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+*.dbmdl
+*.jfm
+*.log
+
+## Build artifacts
+*.pdb
+*.exe
+!WindowsMonitorBLE/
+*.zip
+
+## OS generated
+.DS_Store
+Thumbs.db
+desktop.ini
