@@ -1,177 +1,97 @@
-# Windows Monitor BLE — Tài liệu tích hợp ESP32-C3
+# Windows Monitor BLE — ESP32-C3 System Telemetry
 
-## Tổng quan kiến trúc
+Ứng dụng Windows thu thập thông số phần cứng thời gian thực (CPU, RAM, GPU, Ổ đĩa, Card mạng) và truyền sang vi điều khiển **ESP32 / ESP32-C3** qua Bluetooth Low Energy (BLE GATT) để hiển thị lên màn hình **OLED SSD1306 (128x64 I2C)**.
+
+---
+
+## 🏗️ Kiến trúc hoạt động
 
 ```
-┌─────────────────────┐        BLE GATT         ┌──────────────────┐
-│   Windows PC        │ ───── Write ──────────► │   ESP32-C3       │
-│   (C# App)          │ ◄──── Notify ─────────── │   (Peripheral)   │
-└─────────────────────┘                          └──────────────────┘
-  Thu thập: CPU, RAM,                              Nhận gói 32 byte
-  GPU, Disk, Network                               Hiển thị / xử lý
-```
-
----
-
-## UUID BLE (cần cấu hình giống nhau ở cả 2 phía)
-
-| Loại               | UUID                                   | Property              |
-|--------------------|----------------------------------------|-----------------------|
-| **Service**        | `12345678-0000-1000-8000-00805F9B34FB` | —                     |
-| **Metrics (Write)**| `12345678-0001-1000-8000-00805F9B34FB` | Write Without Response|
-| **Status (Notify)**| `12345678-0002-1000-8000-00805F9B34FB` | Notify (tuỳ chọn)     |
-
----
-
-## Cấu trúc gói tin BLE (32 bytes)
-
-| Byte  | Nội dung                  | Đơn vị / Ghi chú                     |
-|-------|---------------------------|---------------------------------------|
-| 0     | Header `0xA5`             | Để nhận diện gói hợp lệ              |
-| 1     | CPU usage %               | 0–100                                 |
-| 2     | CPU temperature           | °C, `0xFF` = không có dữ liệu        |
-| 3–4   | RAM used (little-endian)  | uint16 × 10 MB (max 655,350 MB)      |
-| 5–6   | RAM total (little-endian) | uint16 × 10 MB                       |
-| 7     | RAM usage %               | 0–100                                 |
-| 8     | GPU usage %               | 0–100, `0xFF` = N/A                   |
-| 9     | GPU temperature           | °C, `0xFF` = N/A                      |
-| 10–11 | Disk read (little-endian) | uint16 KB/s                           |
-| 12–13 | Disk write (little-endian)| uint16 KB/s                           |
-| 14    | Disk C: usage %           | 0–100                                 |
-| 15–16 | Net sent (little-endian)  | uint16 KB/s                           |
-| 17–18 | Net recv (little-endian)  | uint16 KB/s                           |
-| 19–22 | Uptime (little-endian)    | uint32 giây                           |
-| 23    | CPU freq                  | MHz / 100 (VD: 35 = 3500 MHz)        |
-| 24–30 | Reserved                  | Để mở rộng sau                       |
-| 31    | Checksum XOR              | XOR của byte 0–30                    |
-
----
-
-## Ví dụ code ESP32-C3 (Arduino)
-
-```cpp
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-
-#define SERVICE_UUID      "12345678-0000-1000-8000-00805F9B34FB"
-#define METRICS_CHAR_UUID "12345678-0001-1000-8000-00805F9B34FB"
-#define STATUS_CHAR_UUID  "12345678-0002-1000-8000-00805F9B34FB"
-
-BLEServer*         pServer         = nullptr;
-BLECharacteristic* pMetricsChar    = nullptr;
-BLECharacteristic* pStatusChar     = nullptr;
-bool               deviceConnected = false;
-
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* s)    { deviceConnected = true; }
-  void onDisconnect(BLEServer* s) { deviceConnected = false; s->startAdvertising(); }
-};
-
-class MetricsCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* pChar) {
-    uint8_t* data = pChar->getData();
-    size_t   len  = pChar->getLength();
-    if (len != 32 || data[0] != 0xA5) return;
-
-    // Kiểm tra checksum XOR
-    uint8_t chk = 0;
-    for (int i = 0; i < 31; i++) chk ^= data[i];
-    if (chk != data[31]) return;
-
-    // Giải mã
-    uint8_t  cpu_pct   = data[1];
-    uint8_t  cpu_temp  = data[2];   // 0xFF = N/A
-    uint16_t ram_used  = data[3] | (data[4] << 8);   // x10 MB
-    uint16_t ram_total = data[5] | (data[6] << 8);   // x10 MB
-    uint8_t  ram_pct   = data[7];
-    uint8_t  gpu_pct   = data[8];   // 0xFF = N/A
-    uint8_t  gpu_temp  = data[9];   // 0xFF = N/A
-    uint16_t disk_r    = data[10] | (data[11] << 8); // KB/s
-    uint16_t disk_w    = data[12] | (data[13] << 8); // KB/s
-    uint8_t  disk_pct  = data[14];
-    uint16_t net_tx    = data[15] | (data[16] << 8); // KB/s
-    uint16_t net_rx    = data[17] | (data[18] << 8); // KB/s
-    uint32_t uptime    = (uint32_t)data[19] | ((uint32_t)data[20]<<8)
-                       | ((uint32_t)data[21]<<16) | ((uint32_t)data[22]<<24);
-    uint16_t cpu_mhz   = data[23] * 100;
-
-    Serial.printf("CPU:%d%% %dC | RAM:%d%% | GPU:%d%% %dC | Net TX:%d RX:%d KB/s\n",
-      cpu_pct, cpu_temp, ram_pct, gpu_pct, gpu_temp, net_tx, net_rx);
-
-    // Gửi ACK về PC
-    if (pStatusChar && deviceConnected) {
-      char resp[16];
-      snprintf(resp, sizeof(resp), "OK");
-      pStatusChar->setValue((uint8_t*)resp, strlen(resp));
-      pStatusChar->notify();
-    }
-  }
-};
-
-void setup() {
-  Serial.begin(115200);
-  BLEDevice::init("ESP32Monitor");  // ← tên hiện trong app C#
-
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
-
-  BLEService* svc = pServer->createService(SERVICE_UUID);
-
-  pMetricsChar = svc->createCharacteristic(METRICS_CHAR_UUID,
-    BLECharacteristic::PROPERTY_WRITE_NR);
-  pMetricsChar->setCallbacks(new MetricsCallbacks());
-
-  pStatusChar = svc->createCharacteristic(STATUS_CHAR_UUID,
-    BLECharacteristic::PROPERTY_NOTIFY);
-  pStatusChar->addDescriptor(new BLE2902());
-
-  svc->start();
-  BLEDevice::getAdvertising()->addServiceUUID(SERVICE_UUID);
-  BLEDevice::startAdvertising();
-}
-
-void loop() { delay(10); }
+┌─────────────────────────┐          BLE GATT           ┌─────────────────────────┐
+│   Windows PC            │ ─────── Write (32B) ──────► │   ESP32-C3              │
+│   (C# .NET 10 WinForms) │ ◄────── Notify (ACK) ────── │   + OLED SSD1306 128x64 │
+└─────────────────────────┘                             └─────────────────────────┘
 ```
 
 ---
 
-## Build & Chạy app C#
+## 📡 Cấu hình BLE UUIDs
 
-```powershell
-# Yêu cầu: .NET 10 SDK + Windows 10/11 Build 19041+
-cd WindowsMonitorBLE
-dotnet restore
-dotnet run
-# Hoặc build release:
-dotnet publish -c Release -r win-x64 --self-contained
-```
-
-> **Lưu ý:** Cần chạy với quyền **Administrator** để đọc nhiệt độ CPU/GPU.
+| Loại | UUID | Chức năng |
+| :--- | :--- | :--- |
+| **Service UUID** | `12345678-0000-1000-8000-00805F9B34FB` | Dịch vụ chính quảng bá BLE |
+| **Metrics RX (Write)** | `12345678-0001-1000-8000-00805F9B34FB` | PC ghi 32 bytes thông số vào đây |
+| **Status TX (Notify)** | `12345678-0002-1000-8000-00805F9B34FB` | ESP32 gửi phản hồi về PC (tùy chọn) |
+| **Tên thiết bị BLE** | `ESP32Monitor` | Tên tìm kiếm khi PC quét BLE |
 
 ---
 
-## Cấu trúc project
+## 📦 Cấu trúc gói tin nhị phân (32 Bytes Binary Packet)
+
+| Byte Index | Kiểu dữ liệu | Ý nghĩa | Ghi chú |
+| :---: | :--- | :--- | :--- |
+| `[0]` | `uint8` | Header cố định | Luôn là `0xA5` |
+| `[1]` | `uint8` | CPU Usage | `0 – 100%` |
+| `[2]` | `uint8` | CPU Temp | `0 – 254°C` (`0xFF` = N/A) |
+| `[3..4]` | `uint16` (LE) | RAM Used MB | Giá trị × 10 = MB |
+| `[5..6]` | `uint16` (LE) | RAM Total MB | Giá trị × 10 = MB |
+| `[7]` | `uint8` | RAM Usage | `0 – 100%` |
+| `[8]` | `uint8` | GPU Usage | `0 – 100%` (`0xFF` = N/A) |
+| `[9]` | `uint8` | GPU Temp | `0 – 254°C` (`0xFF` = N/A) |
+| `[10..11]`| `uint16` (LE) | Disk Read KB/s | Tốc độ đọc ổ đĩa |
+| `[12..13]`| `uint16` (LE) | Disk Write KB/s | Tốc độ ghi ổ đĩa |
+| `[14]` | `uint8` | Disk Usage | `0 – 100%` dung lượng ổ đã dùng |
+| `[15..16]`| `uint16` (LE) | Net Sent KB/s | Tốc độ Upload |
+| `[17..18]`| `uint16` (LE) | Net Received KB/s| Tốc độ Download |
+| `[19..22]`| `uint32` (LE) | Uptime Seconds | Thời gian hoạt động (giây) |
+| `[23]` | `uint8` | CPU Frequency | Giá trị × 100 = MHz |
+| `[24..30]`| `uint8[7]` | Reserved | Dự phòng (`0x00`) |
+| `[31]` | `uint8` | Checksum XOR | `byte[0] ^ byte[1] ^ ... ^ byte[30]` |
+
+---
+
+## 🚀 Khởi chạy ứng dụng Windows
+
+* **Chạy với quyền Administrator (Đọc đầy đủ Nhiệt độ CPU/GPU):** Nhấp đúp chuột vào file **`run_admin.bat`**.
+* **Chạy thông thường:** Nhấp đúp chuột vào file **`run.bat`**.
+
+---
+
+## 🔌 Nối dây ESP32-C3 với OLED SSD1306 0.96" I2C
+
+| OLED SSD1306 | ESP32-C3 (Chuẩn) | ESP32-C3 SuperMini / LuatOS |
+| :---: | :---: | :---: |
+| **VCC** | **3.3V** | **3.3V** |
+| **GND** | **GND** | **GND** |
+| **SCL** | **GPIO 9** | **GPIO 5** |
+| **SDA** | **GPIO 8** | **GPIO 4** |
+
+> Mở file **`ESP32_Firmware_Example.ino`** trong Arduino IDE (cài thư viện `Adafruit SSD1306` + `Adafruit GFX`) và nạp vào ESP32.
+
+---
+
+## 📂 Cấu trúc mã nguồn tinh gọn
 
 ```
 desktop-monitoring/
-├── WindowsMonitorBLE.sln
-├── run.bat                         (1-Click chạy nhanh)
-├── bin/
-│   └── WindowsMonitorBLE.exe       (Bản publish chạy ngay)
-└── WindowsMonitorBLE/
-    ├── WindowsMonitorBLE.csproj    (.NET 10, WinForms)
-    ├── app.manifest                (asInvoker)
-    ├── Program.cs                  (Entry point [STAThread] + error handling)
-    ├── MainForm.cs                 (UI logic + BLE/Timer events)
-    ├── MainForm.Designer.cs        (UI layout dark theme)
-    ├── SettingsForm.cs             (Cửa sổ Cài đặt: Autostart, Card mạng, Ổ đĩa)
+├── WindowsMonitorBLE.sln             # Visual Studio Solution
+├── run.bat                          # File khởi chạy nhanh
+├── run_admin.bat                    # File khởi chạy cấp quyền Administrator
+├── ESP32_Firmware_Example.ino       # Firmware C++ hoàn chỉnh cho ESP32-C3 + OLED
+├── README.md                        # Tài liệu hướng dẫn
+├── .gitignore                       # Chặn file build rác
+└── WindowsMonitorBLE/               # Project C# .NET 10 WinForms duy nhất
+    ├── WindowsMonitorBLE.csproj
+    ├── app.manifest
+    ├── Program.cs
+    ├── MainForm.cs
+    ├── MainForm.Designer.cs
+    ├── SettingsForm.cs
     ├── Models/
-    │   ├── AppSettings.cs          (Cấu hình lưu trữ)
-    │   └── SystemMetrics.cs        (Data model + 32-byte BLE serializer)
+    │   ├── AppSettings.cs
+    │   └── SystemMetrics.cs
     └── Services/
-        ├── SettingsService.cs      (Đọc/ghi JSON + Windows Registry Run key)
-        ├── SystemMetricsService.cs (PerformanceCounter + LHM + P/Invoke RAM)
-        └── BleService.cs           (Windows BLE GATT Central)
+        ├── BleService.cs
+        ├── SettingsService.cs
+        └── SystemMetricsService.cs
 ```
