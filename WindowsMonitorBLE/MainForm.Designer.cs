@@ -119,7 +119,7 @@ partial class MainForm
                             out lblDiskRead, out lblDiskWrite, out lblDiskC);
         // Network Card (Teal)
         var netCard   = BuildInfoCard("🌐 Network", Color.FromArgb(13, 148, 136),
-                            out lblNetSend, out lblNetRecv, out lblUptime);
+                            out lblNetSend, out lblNetRecv, out _);
         // Uptime Card (Indigo)
         var upCard    = BuildUptimeCard(out lblUptime);
 

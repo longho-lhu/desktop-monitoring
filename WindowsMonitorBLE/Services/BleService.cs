@@ -170,7 +170,7 @@ public sealed class BleService : IAsyncDisposable
 
         try
         {
-            byte[] packet = metrics.ToBlePaket();
+            byte[] packet = metrics.ToBlePacket();
 
             using var writer = new DataWriter();
             writer.WriteBytes(packet);
