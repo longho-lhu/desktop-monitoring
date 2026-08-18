@@ -1,28 +1,40 @@
-# Windows Monitor BLE — ESP32-C3 System Telemetry
+# Desktop Monitoring BLE — ESP32-C3 System Telemetry (Windows & Linux)
 
-Ứng dụng Windows thu thập thông số phần cứng thời gian thực (CPU, RAM, GPU, Ổ đĩa, Card mạng) và truyền sang vi điều khiển **ESP32 / ESP32-C3** qua Bluetooth Low Energy (BLE GATT) để hiển thị lên màn hình **OLED SSD1306 (128x64 I2C)**.
-
----
-
-## 🏗️ Kiến trúc hoạt động
-
-```
-┌─────────────────────────┐          BLE GATT           ┌─────────────────────────┐
-│   Windows PC            │ ─────── Write (32B) ──────► │   ESP32-C3              │
-│   (C# .NET 10 WinForms) │ ◄────── Notify (ACK) ────── │   + OLED SSD1306 128x64 │
-└─────────────────────────┘                             └─────────────────────────┘
-```
+Hệ thống giám sát phần cứng thời gian thực dành cho **Windows** và **Linux (Ubuntu 26 / 24+ / Debian / Fedora / Arch / Raspberry Pi)**, truyền toàn bộ thông số (CPU, RAM, GPU, Ổ đĩa, Card mạng, Uptime) sang vi điều khiển **ESP32 / ESP32-C3** qua **Bluetooth Low Energy (BLE GATT)** để hiển thị lên màn hình **OLED SSD1306 (128x64 I2C)**.
 
 ---
 
-## 📡 Cấu hình BLE UUIDs
+## 🏗️ Kiến trúc hoạt động đa nền tảng
+
+```
+┌─────────────────────────────────┐
+│ Windows PC                      │
+│ (C# .NET 10 WinForms)           │
+└──────────────┬──────────────────┘
+               │  BLE GATT Write (32 Bytes)
+               ▼
+┌─────────────────────────────────┐         ┌─────────────────────────┐
+│ ESP32 / ESP32-C3 Firmware       │ ──────► │ OLED SSD1306 128x64 I2C │
+│ (ESP32_Firmware_Example.ino)    │         │ (Giao diện 2 cột cân đối)│
+└─────────────────────────────────┘         └─────────────────────────┘
+               ▲
+               │  BLE GATT Write (32 Bytes)
+┌──────────────┴──────────────────┐
+│ Linux PC (Ubuntu 26 / 24+)      │
+│ (Python 3 + Bleak + Dark GUI)   │
+└─────────────────────────────────┘
+```
+
+---
+
+## 📡 Cấu hình BLE UUIDs (Dùng chung cho Windows, Linux & ESP32)
 
 | Loại | UUID | Chức năng |
 | :--- | :--- | :--- |
 | **Service UUID** | `12345678-0000-1000-8000-00805F9B34FB` | Dịch vụ chính quảng bá BLE |
-| **Metrics RX (Write)** | `12345678-0001-1000-8000-00805F9B34FB` | PC ghi 32 bytes thông số vào đây |
+| **Metrics RX (Write)** | `12345678-0001-1000-8000-00805F9B34FB` | Ghi gói tin 32 bytes thông số vào đây |
 | **Status TX (Notify)** | `12345678-0002-1000-8000-00805F9B34FB` | ESP32 gửi phản hồi về PC (tùy chọn) |
-| **Tên thiết bị BLE** | `ESP32Monitor` | Tên tìm kiếm khi PC quét BLE |
+| **Tên thiết bị BLE** | `ESP32Monitor` | Tên tìm kiếm mặc định khi quét BLE |
 
 ---
 
@@ -50,7 +62,37 @@
 
 ---
 
-## 🚀 Khởi chạy ứng dụng Windows
+## 🐧 Hướng dẫn cài đặt & Khởi chạy trên Linux / Ubuntu 26
+
+### 1. Cài đặt tự động (1 lệnh duy nhất)
+Mở terminal tại thư mục `LinuxMonitorBLE/` và chạy:
+```bash
+cd LinuxMonitorBLE
+bash install.sh
+```
+Script sẽ tự động cài đặt `python3-venv`, `python3-tk`, `bluez`, tạo môi trường ảo `.venv`, cài đặt thư viện `bleak`, `psutil`, `pynvml` và tạo phím tắt Desktop Entry trong Ubuntu Menu.
+
+### 2. Các cách khởi chạy trên Linux:
+* **Giao diện Desktop GUI (Khuyên dùng):**
+  ```bash
+  ./run.sh
+  ```
+  *(Hoặc nhấp mở biểu tượng **Linux Monitor BLE** trong menu ứng dụng của Ubuntu)*
+* **Giao diện Terminal Live Dashboard (Dành cho CLI / SSH / Server):**
+  ```bash
+  ./run_cli.sh
+  ```
+* **Chạy ngầm dạng Daemon (Tự khởi động cùng Linux qua Systemd):**
+  ```bash
+  mkdir -p ~/.config/systemd/user/
+  cp linux_monitor_ble.service ~/.config/systemd/user/
+  systemctl --user daemon-reload
+  systemctl --user enable --now linux_monitor_ble.service
+  ```
+
+---
+
+## 🪟 Hướng dẫn khởi chạy trên Windows
 
 * **Chạy với quyền Administrator (Đọc đầy đủ Nhiệt độ CPU/GPU):** Nhấp đúp chuột vào file **`run_admin.bat`**.
 * **Chạy thông thường:** Nhấp đúp chuột vào file **`run.bat`**.
@@ -70,28 +112,29 @@
 
 ---
 
-## 📂 Cấu trúc mã nguồn tinh gọn
+## 📂 Cấu trúc mã nguồn dự án
 
 ```
 desktop-monitoring/
-├── WindowsMonitorBLE.sln             # Visual Studio Solution
-├── run.bat                          # File khởi chạy nhanh
-├── run_admin.bat                    # File khởi chạy cấp quyền Administrator
 ├── ESP32_Firmware_Example.ino       # Firmware C++ hoàn chỉnh cho ESP32-C3 + OLED
-├── README.md                        # Tài liệu hướng dẫn
-├── .gitignore                       # Chặn file build rác
-└── WindowsMonitorBLE/               # Project C# .NET 10 WinForms duy nhất
-    ├── WindowsMonitorBLE.csproj
-    ├── app.manifest
-    ├── Program.cs
-    ├── MainForm.cs
-    ├── MainForm.Designer.cs
-    ├── SettingsForm.cs
-    ├── Models/
-    │   ├── AppSettings.cs
-    │   └── SystemMetrics.cs
-    └── Services/
-        ├── BleService.cs
-        ├── SettingsService.cs
-        └── SystemMetricsService.cs
+├── README.md                        # Tài liệu hướng dẫn đa nền tảng
+├── .gitignore                       # Chặn file rác
+│
+├── LinuxMonitorBLE/                 # 🐧 Ứng dụng Linux (Ubuntu 26+)
+│   ├── main.py                      # Điểm vào chính (--gui, --cli, --daemon)
+│   ├── requirements.txt             # Dependencies (bleak, psutil, pynvml)
+│   ├── install.sh                   # Script cài đặt tự động 1-click
+│   ├── run.sh                       # Khởi chạy Desktop GUI
+│   ├── run_cli.sh                   # Khởi chạy Terminal Live CLI
+│   ├── linux_monitor_ble.service    # Systemd service chạy ngầm
+│   ├── models/                      # Data models & 32-byte BLE packeting
+│   ├── services/                    # Metrics collector (/sys, /proc) & BLE client (Bleak)
+│   ├── ui/                          # Tkinter Dark GUI & Rich CLI Dashboard
+│   └── tests/                       # Unit tests kiểm tra tương thích gói tin
+│
+└── WindowsMonitorBLE/               # 🪟 Ứng dụng Windows (C# .NET 10 WinForms)
+    ├── WindowsMonitorBLE.sln
+    ├── run.bat
+    ├── run_admin.bat
+    └── WindowsMonitorBLE/
 ```

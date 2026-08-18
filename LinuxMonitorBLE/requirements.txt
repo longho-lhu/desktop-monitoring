@@ -1,0 +1,4 @@
+# Linux Monitor BLE Requirements
+bleak>=0.21.1
+psutil>=5.9.0
+pynvml>=11.5.0; sys_platform == 'linux'

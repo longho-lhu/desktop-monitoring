@@ -19,6 +19,16 @@
 !WindowsMonitorBLE/
 *.zip
 
+## Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+*.egg-info/
+LinuxMonitorBLE/config.json
+
 ## OS generated
 .DS_Store
 Thumbs.db
